@@ -264,6 +264,45 @@ function ProcessTab({ processes, setProcesses, showStatus }) {
   const [form, setForm] = useState({ process_no:'', process_name:'', line:'A', required_count:1 });
   const [showForm, setShowForm] = useState(false);
   const [copyFrom, setCopyFrom] = useState('A');
+  const [csvText, setCsvText] = useState('');
+  const [showCsv, setShowCsv] = useState(false);
+  const fileRef = useRef();
+
+  const handleCsvFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setCsvText(ev.target.result);
+    reader.readAsText(file, 'UTF-8');
+    setShowCsv(true);
+    e.target.value = '';
+  };
+
+  const importCsv = async () => {
+    const lines = csvText.trim().split('\n');
+    const header = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+    const rows = lines.slice(1).map(line => {
+      const vals = line.split(',').map(v => v.trim().replace(/"/g,''));
+      const obj = {};
+      header.forEach((h,i) => obj[h] = vals[i]||'');
+      return obj;
+    }).filter(r => r.process_no || r['工程No'] || r['工程NO']);
+
+    const toInsert = rows.map(r => ({
+      line: r.line || r['ライン'] || 'A',
+      process_no: r.process_no || r['工程No'] || r['工程NO'] || '',
+      process_name: r.process_name || r['工程名'] || '',
+      required_count: parseInt(r.required_count || r['必要人数'] || r['人数'] || '1') || 1,
+    }));
+
+    const { data } = await db.from('processes').insert(toInsert).select();
+    if (data) {
+      setProcesses(prev => [...prev, ...data].sort((a,b) => a.line.localeCompare(b.line) || a.process_no.localeCompare(b.process_no)));
+      setShowCsv(false);
+      setCsvText('');
+      showStatus(`✅ ${data.length}工程インポートしました`);
+    }
+  };
 
   const addProcess = async () => {
     if (!form.process_no || !form.process_name) return;
@@ -300,14 +339,30 @@ function ProcessTab({ processes, setProcesses, showStatus }) {
     <div style={{ overflowY:'auto', height:'100%', padding:20 }}>
       <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
         <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>＋ 工程追加</button>
-        <div style={{ display:'flex', gap:6, alignItems:'center', marginLeft:16 }}>
-          <span style={{ fontSize:12, color:'#64748b' }}>Aライン→Bラインコピー：</span>
+        <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📂 CSVインポート</button>
+        <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleCsvFile} />
+        <span style={{ fontSize:11, color:'#475569' }}>列名: line, process_no, process_name, required_count</span>
+        <div style={{ display:'flex', gap:6, alignItems:'center', marginLeft:'auto' }}>
+          <span style={{ fontSize:12, color:'#64748b' }}>ラインコピー：</span>
           <select value={copyFrom} onChange={e=>setCopyFrom(e.target.value)} style={{ width:80 }}>
             <option value="A">Aライン</option><option value="B">Bライン</option>
           </select>
           <button className="btn btn-ghost" onClick={copyLineProcesses}>コピー実行</button>
         </div>
       </div>
+
+      {showCsv && (
+        <div style={{ background:'#151823', border:'1px solid #2d3348', borderRadius:8, padding:16, marginBottom:16 }}>
+          <div style={{ fontSize:12, color:'#94a3b8', marginBottom:8 }}>CSVプレビュー（先頭3行）：</div>
+          <pre style={{ fontSize:11, color:'#64748b', marginBottom:12, maxHeight:80, overflow:'auto' }}>
+            {csvText.split('\n').slice(0,4).join('\n')}
+          </pre>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-success" onClick={importCsv}>インポート実行</button>
+            <button className="btn btn-ghost" onClick={() => setShowCsv(false)}>キャンセル</button>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div style={{ background:'#151823', border:'1px solid #2d3348', borderRadius:8, padding:16, marginBottom:16, display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-end' }}>
